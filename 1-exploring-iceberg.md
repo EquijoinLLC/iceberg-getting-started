@@ -36,6 +36,9 @@ Start services using Docker Compose:
 docker compose up -d && docker compose rm -f
 ```
 
+Bootstrap a new project with Lakekeeper.
+
+
 Create an `iceberg` catalog using the management api from the Lakekeeper catalog.
 
 ```
@@ -45,7 +48,6 @@ curl -X POST -v \
      -d \
 '{
   "warehouse-name": "iceberg-warehouse",
-  "project-id": "00000000-0000-0000-0000-000000000000",
   "storage-profile": {
     "type": "s3",
     "bucket": "databucks",

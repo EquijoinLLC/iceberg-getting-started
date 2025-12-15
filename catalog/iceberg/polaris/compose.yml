@@ -1,0 +1,78 @@
+include:
+  - ../../../storage/minio/compose.yml
+  - ../../../storage/postgres/compose.yml
+
+services:
+  polaris:
+    image: apache/polaris:latest
+    ports:
+      - "8181:8181"
+      - "8182"
+    environment:
+      AWS_REGION: us-west-2
+      AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+      AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+      POLARIS_BOOTSTRAP_CREDENTIALS: default-realm,root,s3cr3t
+      polaris.realm-context.realms: default-realm
+      quarkus.otel.sdk.disabled: "true"
+
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:8182/healthcheck"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  create-polaris-catalog:
+    image: curlimages/curl
+    depends_on:
+      polaris:
+        condition: service_healthy
+    volumes:
+      - ./create-polaris-catalog.sh:/create-polaris-catalog.sh
+    command: ["/bin/sh", "/create-polaris-catalog.sh"]
+
+
+services:
+  lakekeeper:
+    image: 'quay.io/lakekeeper/catalog:latest-main'
+    environment:
+      - ICEBERG_REST__BASE_URI=http://lakekeeper:8181
+      - ICEBERG_REST__LISTEN_PORT=8181
+      - ICEBERG_REST__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:password@postgres-db:5432/iceberg
+      - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:password@postgres-db:5432/iceberg
+      - ICEBERG_REST__DEFAULT_PROJECT_ID=00000000-0000-0000-0000-000000000000
+      - RUST_LOG=trace,tower_http=trace,axum=trace,sqlx=trace,iceberg-catalog=trace,iceberg_catalog::implementations::postgres::task_queues=warn
+    ports:
+      - "8181:8181"
+    command: [ "serve" ]
+    healthcheck:
+      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
+      interval: 1s
+      timeout: 10s
+      retries: 3
+      start_period: 3s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - fedinet
+
+  migrate:
+    image: 'quay.io/lakekeeper/catalog:latest-main'
+    environment:
+      - ICEBERG_REST__PG_ENCRYPTION_KEY=This-is-NOT-Secure!
+      - ICEBERG_REST__PG_DATABASE_URL_READ=postgresql://postgres:password@postgres-db:5432/iceberg
+      - ICEBERG_REST__PG_DATABASE_URL_WRITE=postgresql://postgres:password@postgres-db:5432/iceberg
+      - RUST_LOG=info
+    restart: "no"
+    entrypoint: [ "/home/nonroot/iceberg-catalog", "migrate" ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fedinet
+
+networks:
+  fedinet:
+    name: compose_network
